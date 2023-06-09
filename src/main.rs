@@ -3,11 +3,12 @@ use axum::{
     routing::{get, post},
     Json, Router, TypedHeader, headers::{Authorization, authorization::Bearer},
 };
-use jwt_simple::prelude::HS256Key;
+use jwt_simple::prelude::{HS256Key, Duration, VerificationOptions};
 use skytable::{
     actions::Actions,
     Connection, ddl::Ddl
 };
+use structs::{AuthError, Auth};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -95,7 +96,7 @@ async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<st
     (StatusCode::CREATED, Json(user))
 }
 
-async fn authorize(TypedHeader(authorization): TypedHeader<Authorization<Bearer>>) -> Result<(), (StatusCode, String)> {
+async fn authorize(TypedHeader(authorization): TypedHeader<Authorization<Bearer>>) -> Result<StatusCode, (StatusCode, Json<AuthError>)> {
     let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
     conn.switch("analytics:session").unwrap();
 
@@ -103,9 +104,14 @@ async fn authorize(TypedHeader(authorization): TypedHeader<Authorization<Bearer>
 
     let session: Session = conn.get(token).unwrap();
 
-    jwt::verify(&HS256Key::from_bytes(&session.key), token);
+    let result = jwt::verify(&HS256Key::from_bytes(&session.key), token);
 
-    Ok(())
+    if result {
+        Ok(StatusCode::OK)
+    } else {
+        let auth_error: AuthError = AuthError { message: "Invalid token".to_string() };
+        Err((StatusCode::UNAUTHORIZED, Json(auth_error)))
+    }
 }
 
 

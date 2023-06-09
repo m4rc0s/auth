@@ -62,6 +62,12 @@ pub struct Session {
 }
 
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AuthError {
+    pub message: String
+}
+
+
 // skytable compatibility
 impl_skytable_hash!(Login);
 impl_skytable_hash!(Session);
