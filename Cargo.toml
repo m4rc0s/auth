@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.6.18"
+jwt-simple = "0.11.5"
 scrypt = "0.11.0"
 serde = { version = "1.0.164", features=["derive"] }
 serde_json = "1.0.96"

@@ -3,16 +3,20 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use jwt_simple::prelude::HS256Key;
 use skytable::{
     actions::Actions,
-    Connection
+    Connection, ddl::Ddl
 };
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
+use crate::structs::Session;
+
 mod password;
 mod structs;
-
+mod jwt;
+mod migration;
 
 #[tokio::main]
 async fn main() {
@@ -45,14 +49,20 @@ async fn login(Json(payload): Json<structs::Login>) -> (StatusCode, Json<structs
     info!("user data found: {:?}", user_data);
 
     let user: structs::User = serde_json::from_str(&user_data).unwrap();
-
     let result = password::verify(payload.password, user.password);
+
+    let key = HS256Key::generate();
+
+    conn.switch("analytics:session").unwrap();
+
+    let session = Session { key: key.to_bytes() };
+    conn.set(&user.username, session).unwrap();
 
     if result {
         return (
             StatusCode::OK,
             Json(structs::LoginResult {
-                token: "token".to_string(),
+                token: jwt::token(&key).unwrap(),
             }),
         );
     }
@@ -84,8 +94,10 @@ async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<st
     (StatusCode::CREATED, Json(user))
 }
 
+async fn authenticate(Json(payload): Json<structs::Auth>) -> Result<Json<()>, (StatusCode, String)> {
+    todo!("Later")
+}
+
 async fn health_check() -> &'static str {
     "running"
 }
-
-
