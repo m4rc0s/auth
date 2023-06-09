@@ -51,11 +51,9 @@ async fn login(Json(payload): Json<structs::Login>) -> (StatusCode, Json<structs
 
     let user: structs::User = serde_json::from_str(&user_data).unwrap();
     let result = password::verify(payload.password, user.password);
-
     let key = HS256Key::generate();
 
     conn.switch("analytics:session").unwrap();
-
 
     let token = jwt::token(&key).unwrap();
     let session = Session { key: key.to_bytes() };
