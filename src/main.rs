@@ -1,64 +1,91 @@
-use serde::{Deserialize, Serialize};
-use skytable::{Connection, SkyResult};
-use skytable::ddl::{Ddl, Keymap, KeymapType};
-use skytable::actions::Actions;
-use serde_json;
+use axum::{
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use skytable::{
+    actions::Actions,
+    Connection
+};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct User {
-    username: String,
-    password: String,
-    verified: bool
+mod password;
+mod structs;
+
+
+#[tokio::main]
+async fn main() {
+    // logging setup
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::TRACE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
+    let app = Router::new()
+        .route("/health-check", get(health_check))
+        .route("/users", post(create_user))
+        .route("/users/login", post(login));
+
+    info!("listening on 0.0.0.0:3000");
+    // run it with hyper on localhost:3000
+    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
 }
 
-fn create_user(username: String, password: String) -> User {
-    let user = User { 
-        username: username, 
-        password: password, 
-        verified: true
+async fn login(Json(payload): Json<structs::Login>) -> (StatusCode, Json<structs::LoginResult>) {
+    info!("user data found: {:?}", payload);
+
+    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
+    let user_data: String = conn.get(payload.username).ok().unwrap();
+
+    info!("user data found: {:?}", user_data);
+
+    let user: structs::User = serde_json::from_str(&user_data).unwrap();
+
+    let result = password::verify(payload.password, user.password);
+
+    if result {
+        return (
+            StatusCode::OK,
+            Json(structs::LoginResult {
+                token: "token".to_string(),
+            }),
+        );
+    }
+
+    return (
+        StatusCode::NOT_ACCEPTABLE,
+        Json(structs::LoginResult {
+            token: ("".to_string()),
+        }),
+    );
+}
+
+async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<structs::User>) {
+    let user = structs::User {
+        username: payload.username,
+        password: password::hash(payload.password),
+        verified: payload.verified,
     };
-    
-    return user;
+
+    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
+
+    info!("creating new user...{:?}", user);
+
+    conn.set(&user.username, serde_json::to_string(&user).unwrap())
+        .unwrap();
+
+    info!("new user created {:?}", user);
+
+    (StatusCode::CREATED, Json(user))
 }
 
-fn main() -> SkyResult<()> {
-    let mut con = Connection::new("127.0.0.1", 2003)?;
-
-    let username = String::from("test6@gmail.com");
-    let password = String::from("123456");
-
-    let user = create_user(username, password);
-
-    con.set(&user.username, serde_json::to_string(&user).unwrap()).unwrap();
-
-    Ok(())
+async fn health_check() -> &'static str {
+    "running"
 }
 
-#[cfg(test)]
-mod unit_test {
 
-    use super::*;
-
-    #[test]
-    fn should_create_user() {
-        let username = String::from("test");
-        let password = String::from("test");
-
-        let user = create_user(username, password);
-
-        assert_eq!(user.username, String::from("test"));
-        assert_eq!(user.password, String::from("test"));
-    }
-
-    #[test]
-    fn should_convert_to_json() {
-        let username = String::from("test");
-        let password = String::from("test");
-
-        let user = create_user(username, password);
-
-        serde_json::to_string(&user).unwrap();
-
-    }
-
-}
