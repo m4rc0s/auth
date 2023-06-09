@@ -1,0 +1,11 @@
+
+services:
+  auth-db:
+    image: skytable/sdb:v0.7.5
+    ports:
+      - 2003:2003
+    volumes:
+      - skytable:/var/lib/skytable
+
+volumes:
+  skytable:
