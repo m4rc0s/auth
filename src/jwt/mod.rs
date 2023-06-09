@@ -14,7 +14,7 @@ pub fn verify(key: &HS256Key, token: &str) -> bool {
     };
 
     key.verify_token::<NoCustomClaims>(token, Some(options)).is_ok()
-} 
+}
 
 #[cfg(test)]
 mod tests {
