@@ -1,7 +1,7 @@
 use axum::{
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
+    Json, Router, TypedHeader, headers::{Authorization, authorization::Bearer},
 };
 use jwt_simple::prelude::HS256Key;
 use skytable::{
@@ -30,7 +30,8 @@ async fn main() {
     let app = Router::new()
         .route("/health-check", get(health_check))
         .route("/users", post(create_user))
-        .route("/users/login", post(login));
+        .route("/users/login", post(login))
+        .route("/users/authorize", post(authorize));
 
     info!("listening on 0.0.0.0:3000");
     // run it with hyper on localhost:3000
@@ -55,14 +56,16 @@ async fn login(Json(payload): Json<structs::Login>) -> (StatusCode, Json<structs
 
     conn.switch("analytics:session").unwrap();
 
+
+    let token = jwt::token(&key).unwrap();
     let session = Session { key: key.to_bytes() };
-    conn.set(&user.username, session).unwrap();
+    conn.set(&token, session).unwrap();
 
     if result {
         return (
             StatusCode::OK,
             Json(structs::LoginResult {
-                token: jwt::token(&key).unwrap(),
+                token: token,
             }),
         );
     }
@@ -94,9 +97,19 @@ async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<st
     (StatusCode::CREATED, Json(user))
 }
 
-async fn authenticate(Json(payload): Json<structs::Auth>) -> Result<Json<()>, (StatusCode, String)> {
-    todo!("Later")
+async fn authorize(TypedHeader(authorization): TypedHeader<Authorization<Bearer>>) -> Result<(), (StatusCode, String)> {
+    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
+    conn.switch("analytics:session").unwrap();
+
+    let token = authorization.token();
+
+    let session: Session = conn.get(token).unwrap();
+
+    jwt::verify(&HS256Key::from_bytes(&session.key), token);
+
+    Ok(())
 }
+
 
 async fn health_check() -> &'static str {
     "running"
