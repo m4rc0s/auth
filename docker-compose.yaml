@@ -1,11 +1,31 @@
 
 services:
+  server:
+    build:
+      context: .
+      target: service
+    ports:
+      - 3000:3000
+    environment:
+      - ADDRESS=0.0.0.0:3000
+      - RUST_LOG=debug
+    depends_on:
+      auth-db:
+        condition: service_started
+    networks:
+      - general
   auth-db:
     image: skytable/sdb:v0.7.5
     ports:
       - 2003:2003
     volumes:
       - skytable:/var/lib/skytable
+    networks:
+      - general
 
 volumes:
   skytable:
+
+networks:
+  general:
+    driver: bridge

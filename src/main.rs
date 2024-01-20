@@ -3,10 +3,11 @@ use axum::{
     routing::{get, post},
     Json, Router, TypedHeader, headers::{Authorization, authorization::Bearer},
 };
-use jwt_simple::prelude::{HS256Key, Duration, VerificationOptions};
+use tower_http::cors::{Any, CorsLayer};
+use jwt_simple::prelude::{HS256Key, Duration};
 use skytable::{
     actions::Actions,
-    Connection, ddl::Ddl
+    Connection
 };
 use structs::{AuthError, Auth};
 use tracing::{info, Level};
@@ -28,11 +29,14 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
+    let cors = CorsLayer::new().allow_origin(Any).allow_headers(Any);
+
     let app = Router::new()
         .route("/health-check", get(health_check))
         .route("/users", post(create_user))
         .route("/users/login", post(login))
-        .route("/users/authorize", post(authorize));
+        .route("/users/authorize", post(authorize))
+        .layer(cors);
 
     info!("listening on 0.0.0.0:3000");
     // run it with hyper on localhost:3000
@@ -45,17 +49,17 @@ async fn main() {
 async fn login(Json(payload): Json<structs::Login>) -> (StatusCode, Json<structs::LoginResult>) {
     info!("user data found: {:?}", payload);
 
-    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
+    let mut conn = Connection::new("auth-db", 2003).unwrap();
     let user_data: String = conn.get(payload.username).ok().unwrap();
 
     info!("user data found: {:?}", user_data);
 
     let user: structs::User = serde_json::from_str(&user_data).unwrap();
     let result = password::verify(payload.password, user.password);
+
+    info!("generated result is: {:?}", result);
+
     let key = HS256Key::generate();
-
-    conn.switch("analytics:session").unwrap();
-
     let token = jwt::token(&key).unwrap();
     let session = Session { key: key.to_bytes() };
     conn.set(&token, session).unwrap();
@@ -84,7 +88,7 @@ async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<st
         verified: payload.verified,
     };
 
-    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
+    let mut conn = Connection::new("auth-db", 2003).unwrap();
 
     info!("creating new user...{:?}", user);
 
@@ -97,8 +101,7 @@ async fn create_user(Json(payload): Json<structs::User>) -> (StatusCode, Json<st
 }
 
 async fn authorize(TypedHeader(authorization): TypedHeader<Authorization<Bearer>>) -> Result<StatusCode, (StatusCode, Json<AuthError>)> {
-    let mut conn = Connection::new("127.0.0.1", 2003).unwrap();
-    conn.switch("analytics:session").unwrap();
+    let mut conn = Connection::new("auth-db", 2003).unwrap();
 
     let token = authorization.token();
 
